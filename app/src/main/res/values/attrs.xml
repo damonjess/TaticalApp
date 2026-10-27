@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<resources>
+    <attr name="postSplashScreenTheme" format="reference"/>
+    <attr name="splashScreenIconSize" format="dimension"/>
+    <attr name="windowSplashScreenAnimatedIcon" format="reference"/>
+    <attr name="windowSplashScreenAnimationDuration" format="integer"/>
+    <attr name="windowSplashScreenBackground" format="color"/>
+    <attr name="windowSplashScreenIconBackgroundColor" format="color"/>
+</resources>

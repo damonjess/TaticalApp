@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="SGP Tactical - Strategic Management and Planning System">
+    <meta name="theme-color" content="#0a0e0a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>SGP TACTICAL</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- BOOT SCREEN -->
+    <div id="boot-screen">
+        <div class="boot-content">
+            <div class="boot-logo">
+                <img src="sgp-logo.png" alt="SGP" class="boot-emblem">
+            </div>
+            <h1 class="boot-title">SGP TACTICAL</h1>
+            <p class="boot-subtitle">STRATEGIC MANAGEMENT & PLANNING</p>
+            <div class="boot-progress">
+                <div class="boot-progress-bar" id="boot-progress-bar"></div>
+            </div>
+            <div class="boot-status" id="boot-status">INITIALIZING SYSTEM...</div>
+        </div>
+        <div class="boot-scanline"></div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="app" class="hidden">
+        <!-- TOP BAR -->
+        <header id="top-bar">
+            <div class="top-bar-left">
+                <button id="btn-menu" class="icon-btn" title="Menu">
+                    <svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+                </button>
+                <div class="app-brand">
+                    <img src="sgp-logo.png" alt="SGP" class="brand-logo">
+                    <span class="brand-text">SGP TACTICAL</span>
+                </div>
+            </div>
+            <div class="top-bar-center">
+                <div class="coord-display" id="coord-display">
+                    <span class="coord-label">POS</span>
+                    <span class="coord-value" id="coord-lat">--°--'--"N</span>
+                    <span class="coord-value" id="coord-lon">--°--'--"E</span>
+                </div>
+            </div>
+            <div class="top-bar-right">
+                <div class="status-indicator" id="gps-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">GPS</span>
+                </div>
+                <div class="status-indicator active" id="net-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">NET</span>
+                </div>
+                <span class="time-display" id="time-display">00:00:00</span>
+            </div>
+        </header>
+
+        <!-- MAP CONTAINER -->
+        <div id="map-container">
+            <div id="map"></div>
+            
+            <!-- Compass Widget -->
+            <div id="compass-widget">
+                <div class="compass-ring">
+                    <div class="compass-arrow" id="compass-arrow">
+                        <div class="arrow-north"></div>
+                        <div class="arrow-south"></div>
+                    </div>
+                    <span class="compass-n">N</span>
+                    <span class="compass-e">E</span>
+                    <span class="compass-s">S</span>
+                    <span class="compass-w">W</span>
+                </div>
+                <div class="compass-bearing" id="compass-bearing">000°</div>
+            </div>
+
+            <!-- Scale & Info Bar -->
+            <div id="info-bar">
+                <div class="info-item">
+                    <span class="info-label">ALT</span>
+                    <span class="info-value" id="info-alt">-- m</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">SPD</span>
+                    <span class="info-value" id="info-speed">-- km/h</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">HDG</span>
+                    <span class="info-value" id="info-heading">---°</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">ZOOM</span>
+                    <span class="info-value" id="info-zoom">--</span>
+                </div>
+            </div>
+
+            <!-- Crosshair -->
+            <div id="crosshair">
+                <div class="crosshair-h"></div>
+                <div class="crosshair-v"></div>
+                <div class="crosshair-circle"></div>
+            </div>
+
+            <!-- Map Grid Overlay Label -->
+            <div id="grid-label" class="hidden">GRID OVERLAY ACTIVE</div>
+        </div>
+
+        <!-- TOOL SIDEBAR -->
+        <nav id="tool-sidebar">
+            <button class="tool-btn active" data-tool="pan" title="Pan Map">
+                <svg viewBox="0 0 24 24"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></svg>
+                <span>PAN</span>
+            </button>
+            <button class="tool-btn" data-tool="marker" title="Place Marker">
+                <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                <span>MARKER</span>
+            </button>
+            <button class="tool-btn" data-tool="route" title="Plan Route">
+                <svg viewBox="0 0 24 24"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>
+                <span>ROUTE</span>
+            </button>
+            <button class="tool-btn" data-tool="zone" title="Define Zone">
+                <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3V3zm2 2v14h14V5H5z"/><path d="M7 7h10v10H7z" opacity="0.3"/></svg>
+                <span>ZONE</span>
+            </button>
+            <button class="tool-btn" data-tool="measure" title="Measure Distance">
+                <svg viewBox="0 0 24 24"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h1v8z"/></svg>
+                <span>MEASURE</span>
+            </button>
+            <button class="tool-btn" data-tool="scan" title="Scan Zone">
+                <svg viewBox="0 0 24 24"><path d="M3 5v4h2V5h4V3H5C3.9 3 3 3.9 3 5zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z"/><path d="M7 7h10v10H7z" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2" opacity="0.5"/></svg>
+                <span>SCAN</span>
+            </button>
+            <button class="tool-btn" data-tool="cyber" title="Cyber Module">
+                <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10z"/><path d="M6 10h2v2H6zm0 3h2v2H6zm3-3h2v2H9zm0 3h2v2H9zm3-3h5v2h-5zm0 3h5v2h-5z" opacity="0.6"/></svg>
+                <span>CYBER</span>
+            </button>
+            <button class="tool-btn" data-tool="csi" title="CSI Analysis">
+                <svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/><path d="M3 3v18h18" fill="none" stroke="currentColor" stroke-width="2" opacity="0.5"/></svg>
+                <span>CSI</span>
+            </button>
+            <button class="tool-btn" data-tool="comms" title="Walkie-Talkie">
+                <svg viewBox="0 0 24 24"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>
+                <span>COMMS</span>
+            </button>
+            <button class="tool-btn" data-tool="tracker" title="GPS Tracker">
+                <svg viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0013 3.06V1h-2v2.06A8.994 8.994 0 003.06 11H1v2h2.06A8.994 8.994 0 0011 20.94V23h2v-2.06A8.994 8.994 0 0020.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+                <span>TRACK</span>
+            </button>
+            <button class="tool-btn" data-tool="units" title="Manage Units">
+                <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                <span>UNITS</span>
+            </button>
+            <div class="tool-separator"></div>
+            <button class="tool-btn" data-tool="layers" title="Map Layers">
+                <svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg>
+                <span>LAYERS</span>
+            </button>
+            <button class="tool-btn" data-tool="settings" title="Settings">
+                <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                <span>CONFIG</span>
+            </button>
+        </nav>
+
+        <!-- SIDE PANEL (Markers, Routes, Units, Layers, Settings) -->
+        <div id="side-panel" class="hidden">
+            <div class="panel-header">
+                <h2 id="panel-title">PANEL</h2>
+                <div class="panel-header-actions">
+                    <button id="btn-fullscreen-panel" class="icon-btn" title="Fullscreen" onclick="window.SGP.togglePanelFullscreen()">
+                        <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                    </button>
+                    <button id="btn-close-panel" class="icon-btn">
+                        <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="panel-body" id="panel-body">
+                <!-- Dynamic content injected by JS -->
+            </div>
+        </div>
+
+        <!-- MARKER POPUP FORM -->
+        <div id="marker-form" class="modal hidden">
+            <div class="modal-content">
+                <h3>NEW MARKER</h3>
+                <div class="form-group">
+                    <label>NAME / CALLSIGN</label>
+                    <input type="text" id="marker-name" placeholder="Alpha-1" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label>TYPE</label>
+                    <select id="marker-type">
+                        <option value="friendly">🟢 FRIENDLY</option>
+                        <option value="hostile">🔴 HOSTILE</option>
+                        <option value="unknown">🟡 UNKNOWN</option>
+                        <option value="neutral">🔵 NEUTRAL</option>
+                        <option value="objective">⭐ OBJECTIVE</option>
+                        <option value="hazard">⚠️ HAZARD</option>
+                        <option value="medevac">🏥 MEDEVAC</option>
+                        <option value="hq">🏛️ HQ / COMMAND</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>NOTES</label>
+                    <textarea id="marker-notes" rows="3" placeholder="Additional information..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button id="btn-marker-cancel" class="btn btn-secondary">CANCEL</button>
+                    <button id="btn-marker-save" class="btn btn-primary">CONFIRM</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CAMERA FEED VIEWER MODAL -->
+        <div id="camera-modal" class="modal hidden">
+            <div class="modal-content camera-modal-content">
+                <div class="camera-modal-header">
+                    <div class="camera-title-block">
+                        <span class="camera-status-dot live" id="cam-modal-status-dot"></span>
+                        <span class="camera-modal-title" id="cam-modal-title">CAM-01 FEED</span>
+                        <span class="camera-badge" id="cam-modal-type-badge">CCTV</span>
+                    </div>
+                    <div class="camera-header-controls">
+                        <button class="icon-btn" id="btn-cam-fullscreen" title="Toggle Fullscreen" onclick="window.SGP.toggleCameraFullscreen()">
+                            <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                        </button>
+                        <button class="icon-btn" id="btn-close-camera-modal" title="Close Camera Feed" onclick="window.SGP.closeCameraModal()">
+                            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- CAMERA FEED CONTAINER (HUD) -->
+                <div class="camera-feed-viewport filter-nvg" id="cam-feed-viewport">
+                    <!-- Image Feed (for direct image streams) -->
+                    <img id="cam-feed-img" class="cam-feed-media hidden" src="" alt="CAMERA FEED" />
+
+                    <!-- Dynamic Canvas (for simulated/satellite/FLIR feeds or HUD overlays) -->
+                    <canvas id="cam-feed-canvas" class="cam-feed-canvas"></canvas>
+
+                    <!-- Tactical HUD Overlay Layer -->
+                    <div class="cam-hud-overlay">
+                        <!-- Top HUD Info Bar -->
+                        <div class="cam-hud-top">
+                            <div class="cam-hud-tag">
+                                <span id="cam-hud-rec" class="rec-dot">● REC</span>
+                                <span id="cam-hud-id">CAM-001</span>
+                            </div>
+                            <div class="cam-hud-time" id="cam-hud-timestamp">0000-00-00 00:00:00 UTC</div>
+                            <div class="cam-hud-mode" id="cam-hud-vision-label">NVG MODE</div>
+                        </div>
+
+                        <!-- HUD Reticle & Corner Brackets -->
+                        <div class="cam-hud-corner top-left"></div>
+                        <div class="cam-hud-corner top-right"></div>
+                        <div class="cam-hud-corner bottom-left"></div>
+                        <div class="cam-hud-corner bottom-right"></div>
+                        <div class="cam-hud-crosshair"></div>
+
+                        <!-- Target Detection Bounding Boxes Container -->
+                        <div class="cam-hud-targets" id="cam-hud-targets"></div>
+
+                        <!-- Bottom HUD Bar -->
+                        <div class="cam-hud-bottom">
+                            <div class="cam-hud-coords" id="cam-hud-coords">LAT: 00.00000 | LON: 00.00000</div>
+                            <div class="cam-hud-telemetry" id="cam-hud-telemetry">AZ: 180° | ELEV: 0° | ZOOM: 1.0x</div>
+                        </div>
+
+                        <!-- Scanlines Overlay -->
+                        <div class="cam-scanline-overlay"></div>
+                    </div>
+                </div>
+
+                <!-- CAMERA CONTROL PANEL -->
+                <div class="camera-control-panel">
+                    <!-- Vision Mode Toggles -->
+                    <div class="cam-control-group">
+                        <label>VISION MODE</label>
+                        <div class="cam-mode-buttons">
+                            <button class="cam-mode-btn active" data-mode="nvg" onclick="window.SGP.setCameraVisionMode('nvg')">🟢 NVG</button>
+                            <button class="cam-mode-btn" data-mode="flir" onclick="window.SGP.setCameraVisionMode('flir')">🔴 FLIR</button>
+                            <button class="cam-mode-btn" data-mode="cyber" onclick="window.SGP.setCameraVisionMode('cyber')">🔵 CYBER</button>
+                            <button class="cam-mode-btn" data-mode="normal" onclick="window.SGP.setCameraVisionMode('normal')">⚪ NATURAL</button>
+                        </div>
+                    </div>
+
+                    <!-- PTZ / Pan-Tilt-Zoom & AI Overlay Controls -->
+                    <div class="cam-control-grid">
+                        <!-- Zoom Controls -->
+                        <div class="cam-subcontrol">
+                            <label>ZOOM</label>
+                            <div class="cam-btn-row">
+                                <button class="btn btn-secondary btn-sm" onclick="window.SGP.adjustCameraZoom(-0.5)">-</button>
+                                <span class="cam-val-badge" id="cam-zoom-value">1.0x</span>
+                                <button class="btn btn-secondary btn-sm" onclick="window.SGP.adjustCameraZoom(0.5)">+</button>
+                            </div>
+                        </div>
+
+                        <!-- PTZ Pan Controls -->
+                        <div class="cam-subcontrol">
+                            <label>PTZ PAN / TILT</label>
+                            <div class="cam-ptz-pad">
+                                <button class="cam-ptz-btn" onclick="window.SGP.panCamera(0, -10)" title="Tilt Up">▲</button>
+                                <div class="cam-ptz-row">
+                                    <button class="cam-ptz-btn" onclick="window.SGP.panCamera(-10, 0)" title="Pan Left">◄</button>
+                                    <button class="cam-ptz-btn ptz-reset" onclick="window.SGP.resetCameraPTZ()" title="Reset Alignment">•</button>
+                                    <button class="cam-ptz-btn" onclick="window.SGP.panCamera(10, 0)" title="Pan Right">►</button>
+                                </div>
+                                <button class="cam-ptz-btn" onclick="window.SGP.panCamera(0, 10)" title="Tilt Down">▼</button>
+                            </div>
+                        </div>
+
+                        <!-- AI Detection & Refresh -->
+                        <div class="cam-subcontrol">
+                            <label>AI & SYNC</label>
+                            <div class="cam-toggle-row">
+                                <button class="btn btn-secondary btn-sm active" id="btn-cam-target-detect" onclick="window.SGP.toggleCameraTargetDetection()">
+                                    🎯 AI TARGETS
+                                </button>
+                                <button class="btn btn-secondary btn-sm" id="btn-cam-refresh" onclick="window.SGP.refreshCameraFeed()">
+                                    🔄 REFRESH
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Snapshot Capture -->
+                        <div class="cam-subcontrol">
+                            <label>ACTIONS</label>
+                            <div class="cam-btn-row">
+                                <button class="btn btn-primary btn-sm" style="width:100%;" onclick="window.SGP.captureCameraSnapshot()">
+                                    📸 CAPTURE
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Camera Metadata Summary Footer -->
+                    <div class="camera-meta-footer" id="cam-modal-meta">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BOTTOM ACTION BAR (mobile) -->
+        <div id="bottom-bar">
+            <button class="bottom-btn" data-action="locate" title="My Location">
+                <svg viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+                <span>LOCATE</span>
+            </button>
+            <button class="bottom-btn" data-action="alert" title="Send Alert">
+                <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+                <span>ALERT</span>
+            </button>
+            <button class="bottom-btn devices-btn" data-action="devices" title="SGP Devices">
+                <svg viewBox="0 0 24 24"><path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14zm-5-1c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1z"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8.5 7.5C9.5 6 10.7 5.5 12 5.5s2.5.5 3.5 2" fill="none" stroke="currentColor" stroke-width="1"/><path d="M7 6c1.5-2 3-2.5 5-2.5s3.5.5 5 2.5" fill="none" stroke="currentColor" stroke-width="0.8"/></svg>
+                <span>DEVICES</span>
+            </button>
+            <button class="bottom-btn emergency" data-action="sos" title="SOS">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                <span>SOS</span>
+            </button>
+            <button class="bottom-btn shop-btn" data-action="shop" title="SGP Shop">
+                <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                <span>SHOP</span>
+            </button>
+            <button class="bottom-btn" data-action="comms" title="Communications">
+                <svg viewBox="0 0 24 24"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57-.35-.11-.74-.03-1.02.24l-2.2 2.2c-2.83-1.44-5.15-3.75-6.59-6.59l2.2-2.21c.28-.26.36-.65.25-1C8.7 6.45 8.5 5.25 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>
+                <span>COMMS</span>
+            </button>
+        </div>
+
+        <!-- NOTIFICATION TOAST -->
+        <div id="toast" class="hidden">
+            <div class="toast-icon"></div>
+            <span class="toast-msg" id="toast-msg"></span>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
+    <script src="oui-mini.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

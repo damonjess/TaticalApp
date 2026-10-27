@@ -1,0 +1,50 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.sgp.tactical'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId "com.sgp.tactical"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 2
+        versionName "2.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+
+    packagingOptions {
+        // The decompiled res/ already contains the library resources baked into
+        // the original APK; keep the first copy instead of failing on duplicates.
+        pickFirst 'META-INF/*'
+    }
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+
+    // Pulled in by the Capacitor module, listed explicitly so the app sources
+    // that use androidx.core APIs resolve without relying on transitivity.
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
+    implementation "androidx.activity:activity:$androidxActivityVersion"
+    implementation "androidx.fragment:fragment:$androidxFragmentVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+}
