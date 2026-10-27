@@ -43,7 +43,8 @@
             cameras: true,
             aircraft: true,
             vessels: true,
-            highwayCams: true
+            highwayCams: true,
+            tflCams: true
         },
         tileLayers: {},
         markerCounter: 0,
@@ -67,6 +68,11 @@
         highwayCams: [],
         highwayCamMarkers: [],
         highwayCamLayer: null,
+        // TfL JamCams (London traffic cameras, Unified API)
+        tflCams: [],
+        tflCamMarkers: [],
+        tflCamLayer: null,
+        tflCamCatalogue: null,
         cameraCatalog: {},
         activeCamera: null,
         cameraVisionMode: 'nvg',
@@ -81,7 +87,7 @@
         lastDataBounds: null,
         animationFrame: null,
         trafficActive: true,
-        liveStats: { vehicles: 0, towers: 0, infra: 0, cameras: 0, aircraft: 0, vessels: 0, highwayCams: 0 },
+        liveStats: { vehicles: 0, towers: 0, infra: 0, cameras: 0, aircraft: 0, vessels: 0, highwayCams: 0, tflCams: 0 },
         // Scan zone
         scanZone: null,
         scanZoneRect: null,
@@ -406,6 +412,7 @@
         state.vehicleLayer = L.layerGroup().addTo(state.map);
         state.aisLayer = L.layerGroup().addTo(state.map);
         state.highwayCamLayer = L.layerGroup().addTo(state.map);
+        state.tflCamLayer = L.layerGroup().addTo(state.map);
 
         // Locate-me control (recentre on the device GPS fix)
         const locateControl = L.control({ position: 'topleft' });
@@ -471,7 +478,7 @@
         return (state.appSettings && state.appSettings.aisApiKey) || localStorage.getItem('sgp_ais_api_key') || (window.SGP_CONFIG && window.SGP_CONFIG.aisApiKey) || '';
     }
     const AIS_WS_URL = 'wss://stream.aisstream.io/v0/stream';
-    const AIS_MAX_VESSELS = 250;
+    const AIS_MAX_VESSELS = 800;
     const AIS_STALE_MS = 10 * 60 * 1000;
     let aisMoveTimer = null;
 
@@ -492,99 +499,112 @@
         const paddedWest = Math.max(-180.0, midLng - lngSpan / 2.0);
         const paddedEast = Math.min(180.0, midLng + lngSpan / 2.0);
 
+        state.aisBox = { s: paddedSouth, w: paddedWest, n: paddedNorth, e: paddedEast };
         return [[[paddedSouth, paddedWest], [paddedNorth, paddedEast]]];
     }
 
-    function startAISStream() {
-        const apiKey = getAISApiKey();
-        if (!apiKey || state.aisSocket) return;
-        if (!state.mapLayers.vessels) return;
-
-        let ws;
-        try { ws = new WebSocket(AIS_WS_URL); } catch (e) { return; }
-        state.aisSocket = ws;
-
-        ws.onopen = function () {
-            ws.send(JSON.stringify({
-                APIKey: apiKey,
-                BoundingBoxes: aisBoundingBoxes(),
-                FilterMessageTypes: ['PositionReport', 'ShipStaticData', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport']
-            }));
-        };
-
-        ws.onmessage = function (ev) {
-            let msg;
-            try { msg = JSON.parse(ev.data); } catch (e) { return; }
-            if (msg.error) {
-                console.warn('AISStream error:', msg.error);
-                return;
-            }
-
-            const md = msg.MetaData || {};
-            const pr = ((msg.Message || {})[msg.MessageType]) || {};
-            const sd = (msg.Message || {}).ShipStaticData || {};
-
-            const mmsi = String(md.MMSI || pr.UserID || (sd && sd.ImoNumber) || '');
-            if (!mmsi) return;
-
-            // Handle Static Data messages (update name if existing)
-            if (msg.MessageType === 'ShipStaticData' || sd.Name) {
-                const sName = (sd.Name || md.ShipName || '').trim();
-                if (sName) {
-                    const existing = state.aisVessels.get(mmsi);
-                    if (existing) {
-                        existing.name = sName;
-                        scheduleAisRender();
-                    }
-                }
-            }
-
-            // Extract position: coordinates are primary in MetaData (md.Latitude / md.Longitude)
-            const lat = (typeof md.Latitude === 'number' && md.Latitude !== 0) ? md.Latitude :
-                        (typeof md.latitude === 'number' && md.latitude !== 0) ? md.latitude :
-                        (typeof pr.Latitude === 'number' ? pr.Latitude : 0);
-
-            const lon = (typeof md.Longitude === 'number' && md.Longitude !== 0) ? md.Longitude :
-                        (typeof md.longitude === 'number' && md.longitude !== 0) ? md.longitude :
-                        (typeof pr.Longitude === 'number' ? pr.Longitude : 0);
-
-            if (!lat || !lon) return;
-            if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
-
-            const prev = state.aisVessels.get(mmsi);
-            const shipName = (md.ShipName || sd.Name || '').trim() || (prev ? prev.name : '');
-
-            state.aisVessels.set(mmsi, {
-                mmsi: mmsi,
-                name: shipName,
-                lat: lat,
-                lon: lon,
-                sog: typeof pr.Sog === 'number' ? pr.Sog : (prev ? prev.sog : 0),
-                cog: typeof pr.Cog === 'number' ? pr.Cog : (prev ? prev.cog : 0),
-                heading: (typeof pr.TrueHeading === 'number' && pr.TrueHeading !== 511) ? pr.TrueHeading : (prev ? prev.heading : 0),
-                status: pr.NavigationalStatus !== undefined ? pr.NavigationalStatus : (prev ? prev.status : 15),
-                updated: Date.now()
-            });
-            scheduleAisRender();
-        };
-
-        ws.onclose = function () {
-            state.aisSocket = null;
-            if (state.mapLayers.vessels && !state.aisReconnect) {
-                state.aisReconnect = setTimeout(function () {
-                    state.aisReconnect = null;
-                    startAISStream();
-                }, 10000);
-            }
-        };
-
-        ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    // True when the current view is still fully inside the area we subscribed to
+    function aisViewInsideSubscription() {
+        const bx = state.aisBox;
+        if (!bx || !state.aisSocket) return false;
+        const b = state.map.getBounds();
+        return b.getSouth() >= bx.s && b.getNorth() <= bx.n && b.getWest() >= bx.w && b.getEast() <= bx.e;
     }
 
-    function stopAISStream() {
+    // The WebView cannot talk to aisstream.io directly (browser connections are
+    // rejected and frames are binary), so the socket lives in the native AisPlugin.
+    function getAisNative() {
+        const C = window.Capacitor;
+        return (C && C.Plugins && C.Plugins.AisPlugin) ? C.Plugins.AisPlugin : null;
+    }
+
+    let aisListenersReady = false;
+    let aisLastStatus = 'idle';
+    let aisWatchdog = null;
+    let aisGotData = false;
+    function ensureAisListeners(plugin) {
+        if (aisListenersReady) return;
+        aisListenersReady = true;
+
+        plugin.addListener('aisVessels', function (ev) {
+            if (!state.mapLayers.vessels || !state.aisSocket) return;
+            aisGotData = true;
+            const now = Date.now();
+            (ev.vessels || []).forEach(function (v) {
+                if (!v || !v.mmsi || typeof v.lat !== 'number' || typeof v.lon !== 'number') return;
+                const prev = state.aisVessels.get(v.mmsi);
+                state.aisVessels.set(v.mmsi, {
+                    mmsi: v.mmsi,
+                    name: (v.name || (prev ? prev.name : '') || '').trim(),
+                    lat: v.lat,
+                    lon: v.lon,
+                    sog: typeof v.sog === 'number' ? v.sog : (prev ? prev.sog : 0),
+                    cog: typeof v.cog === 'number' ? v.cog : (prev ? prev.cog : 0),
+                    heading: typeof v.heading === 'number' ? v.heading : (prev ? prev.heading : 0),
+                    status: v.status !== undefined ? v.status : (prev ? prev.status : 15),
+                    updated: now
+                });
+            });
+            scheduleAisRender();
+        });
+
+        plugin.addListener('aisStatus', function (ev) {
+            if (!state.mapLayers.vessels) return;
+            aisLastStatus = ev.state + (ev.code ? ' ' + ev.code : '') + (ev.message ? ' ' + ev.message : '');
+            if (ev.state === 'subscribed') {
+                showToast('AIS LINK ESTABLISHED - WAITING FOR VESSELS');
+            } else if (ev.state === 'error') {
+                console.warn('AIS error:', ev.message);
+                showToast('AIS ERROR: ' + (ev.message || 'connection failed'));
+            } else if (ev.state === 'closed') {
+                console.warn('AIS closed', ev.code, ev.message);
+                if (ev.code !== 1000) showToast('AIS CONNECTION CLOSED (' + ev.code + ') ' + (ev.message || ''));
+            }
+        });
+    }
+
+    function startAISStream() {
+        if (!state.mapLayers.vessels) return;
+        const apiKey = (getAISApiKey() || '').trim();
+        if (!apiKey) {
+            showToast('VESSELS: NO AISSTREAM API KEY - ADD ONE IN SETTINGS > DATA & SOURCES');
+            return;
+        }
+        const plugin = getAisNative();
+        if (!plugin) {
+            showToast('VESSELS: NATIVE AIS PLUGIN NOT FOUND - REBUILD THE APP');
+            return;
+        }
+        if (state.aisSocket) return;
+        ensureAisListeners(plugin);
+        state.aisSocket = true; // "stream active" flag; the real socket is native
+        aisGotData = false;
+        aisLastStatus = 'starting';
+        if (aisWatchdog) clearTimeout(aisWatchdog);
+        aisWatchdog = setTimeout(function () {
+            aisWatchdog = null;
+            if (state.mapLayers.vessels && state.aisSocket && !aisGotData) {
+                showToast('AIS: NO DATA AFTER 20s [' + aisLastStatus + ']');
+            }
+        }, 20000);
+        plugin.start({
+            apiKey: apiKey,
+            boxes: aisBoundingBoxes(),
+            types: ['PositionReport', 'ShipStaticData', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport']
+        }).catch(function (e) {
+            state.aisSocket = null;
+            showToast('AIS START FAILED: ' + ((e && e.message) || e));
+        });
+    }
+
+    function stopAISStream(keepData) {
         if (aisMoveTimer) { clearTimeout(aisMoveTimer); aisMoveTimer = null; }
         if (state.aisReconnect) { clearTimeout(state.aisReconnect); state.aisReconnect = null; }
-        if (state.aisSocket) { try { state.aisSocket.close(); } catch (e) {} state.aisSocket = null; }
+        if (aisWatchdog) { clearTimeout(aisWatchdog); aisWatchdog = null; }
+        const plugin = getAisNative();
+        if (plugin && state.aisSocket) { try { plugin.stop().catch(function () {}); } catch (e) {} }
+        state.aisSocket = null;
+        if (keepData === true) return; // soft restart: keep vessels + markers on screen
         if (state.aisRenderTimer) { clearTimeout(state.aisRenderTimer); state.aisRenderTimer = null; }
         if (state.aisLayer) state.aisLayer.clearLayers();
         state.aisVessels.clear();
@@ -609,9 +629,20 @@
         if (!state.aisLayer) return;
 
         const now = Date.now();
+        // Drop only genuinely stale vessels from the data store
+        state.aisVessels.forEach(function (v, id) {
+            if (now - v.updated >= AIS_STALE_MS) state.aisVessels.delete(id);
+        });
+        // Draw what's on screen (plus a margin); the cap applies to drawing only,
+        // so off-screen / over-cap vessels keep their data and don't flicker back in.
+        const view = state.map.getBounds().pad(0.25);
+        const centre = state.map.getCenter();
         const list = Array.from(state.aisVessels.values())
-            .filter(function (v) { return now - v.updated < AIS_STALE_MS; })
-            .sort(function (a, b) { return b.updated - a.updated; })
+            .filter(function (v) { return view.contains([v.lat, v.lon]); })
+            .sort(function (a, b) {
+                return (Math.abs(a.lat - centre.lat) + Math.abs(a.lon - centre.lng)) -
+                       (Math.abs(b.lat - centre.lat) + Math.abs(b.lon - centre.lng));
+            })
             .slice(0, AIS_MAX_VESSELS);
 
         const seen = new Set();
@@ -650,7 +681,6 @@
             if (!seen.has(id)) {
                 state.aisLayer.removeLayer(marker);
                 state.aisMarkers.delete(id);
-                state.aisVessels.delete(id);
             }
         });
 
@@ -834,7 +864,8 @@
                 loadInfrastructure(),
                 loadAircraft(),
                 loadCameras(),
-                loadHighwayCams()
+                loadHighwayCams(),
+                loadTflCams()
             ]);
             const loaded = state.liveStats.vehicles + state.liveStats.towers + state.liveStats.infra + state.liveStats.cameras + state.liveStats.aircraft;
             if (loaded === 0) {
@@ -867,7 +898,7 @@
         state.cameraMarkers.forEach(m => state.map.removeLayer(m));
         state.cameraMarkers = [];
         state.cameras = [];
-        state.liveStats = { vehicles: 0, towers: 0, infra: 0, cameras: 0, aircraft: 0, vessels: 0 };
+        state.liveStats = { vehicles: 0, towers: 0, infra: 0, cameras: 0, aircraft: 0, vessels: 0, highwayCams: 0, tflCams: 0 };
         updateLiveStats();
     }
 
@@ -1325,6 +1356,7 @@
             }
 
             const list = state.highwayCamCatalogue.filter(function (c) {
+                if (state.mapLayers.tflCams && /jamcams/i.test(String(c && (c.internal_id || c.id || '')) + String(c && c.image_url || ''))) return false;
                 return c && c.latitude && c.longitude && c.image_url && c.active !== false &&
                     c.latitude <= b.getNorth() && c.latitude >= b.getSouth() &&
                     c.longitude >= b.getWest() && c.longitude <= b.getEast();
@@ -1391,6 +1423,127 @@
     }
 
     // =========================================
+    // TfL JAMCAMS (London traffic cameras, TfL Unified API - no key needed
+    // for light use; cached in memory after the first download)
+    // =========================================
+    const TFL_JAMCAM_URL = 'https://api.tfl.gov.uk/Place/Type/JamCam';
+    const TFL_CAM_MAX = 150;
+
+    function tflProp(place, key) {
+        const list = place.additionalProperties || [];
+        for (let i = 0; i < list.length; i++) {
+            if (list[i] && list[i].key === key) return list[i].value || '';
+        }
+        return '';
+    }
+
+    function escHtml(t) {
+        return String(t).replace(/[&<>\"]/g, function (ch) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch];
+        });
+    }
+
+    async function loadTflCams() {
+        if (!state.mapLayers.tflCams || !state.tflCamLayer) return;
+
+        const b = state.scanZone || state.map.getBounds();
+
+        state.tflCamMarkers.forEach(m => state.tflCamLayer.removeLayer(m));
+        state.tflCamMarkers = [];
+
+        try {
+            if (!state.tflCamCatalogue) {
+                const resp = await fetchWithTimeout(TFL_JAMCAM_URL, {}, 30000);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const raw = await resp.json();
+                state.tflCamCatalogue = raw.filter(function (p) {
+                    return p && typeof p.lat === 'number' && typeof p.lon === 'number';
+                }).map(function (p) {
+                    return {
+                        id: p.id,
+                        name: String(p.commonName || 'JamCam').trim(),
+                        lat: p.lat,
+                        lon: p.lon,
+                        image_url: tflProp(p, 'imageUrl'),
+                        video_url: tflProp(p, 'videoUrl'),
+                        view: tflProp(p, 'view'),
+                        available: String(tflProp(p, 'available')).toLowerCase() !== 'false'
+                    };
+                }).filter(function (c) { return c.image_url && c.available; });
+            }
+
+            const centre = b.getCenter();
+            const list = state.tflCamCatalogue.filter(function (c) {
+                return c.lat <= b.getNorth() && c.lat >= b.getSouth() &&
+                    c.lon >= b.getWest() && c.lon <= b.getEast();
+            }).sort(function (a, z) {
+                return (Math.abs(a.lat - centre.lat) + Math.abs(a.lon - centre.lng)) -
+                       (Math.abs(z.lat - centre.lat) + Math.abs(z.lon - centre.lng));
+            }).slice(0, TFL_CAM_MAX);
+
+            state.tflCams = list;
+
+            list.forEach(function (c) {
+                const camId = 'tfl-' + c.id;
+                const label = escHtml(c.name);
+                const camData = {
+                    id: camId,
+                    title: c.name,
+                    road: '',
+                    lat: c.lat,
+                    lon: c.lon,
+                    type: 'TFL JAMCAM',
+                    image_url: c.image_url,
+                    video_url: c.video_url,
+                    operator: 'Transport for London',
+                    zone: 'London Traffic',
+                    source: 'TfL Unified API'
+                };
+
+                state.cameraCatalog[camId] = camData;
+
+                const icon = L.divIcon({
+                    html: '<div style="font-size:15px;filter:drop-shadow(0 0 4px rgba(51,153,255,0.9));cursor:pointer;">\uD83D\uDCF8</div>',
+                    className: 'tfl-cam-icon',
+                    iconSize: [18, 18],
+                    iconAnchor: [9, 9]
+                });
+
+                const marker = L.marker([c.lat, c.lon], { icon: icon })
+                    .bindPopup(
+                        '<div style="font-family:monospace;font-size:11px;min-width:210px;line-height:1.6;">' +
+                        '<b style="color:#3399ff;">\uD83D\uDCF8 TfL JAMCAM</b><br>' +
+                        '\uD83D\uDEA6 ' + label + '<br>' +
+                        '<span style="color:#888;font-size:10px;">' + escHtml(c.id) + (c.view ? ' \u00b7 ' + escHtml(c.view) : '') + '</span><br>' +
+                        '<img src="' + escHtml(c.image_url) + '" style="width:100%;margin-top:6px;border:1px solid #3399ff;border-radius:4px;cursor:pointer;" ' +
+                        'onclick="window.SGP.openCameraModalById(\'' + camId + '\')" ' +
+                        'onerror="this.alt=\'FEED OFFLINE\';this.style.opacity=0.4"><br>' +
+                        '<div style="margin-top:8px;">' +
+                        '<button class="btn btn-primary" style="width:100%;padding:6px 8px;font-size:11px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="window.SGP.openCameraModalById(\'' + camId + '\')">' +
+                        '\uD83D\uDCF7 VIEW LIVE FEED' +
+                        '</button>' +
+                        '</div>' +
+                        '</div>',
+                        { maxWidth: 260 }
+                    )
+                    .addTo(state.tflCamLayer);
+
+                marker.on('click', function () {
+                    window.SGP.openCameraModalById(camId);
+                });
+
+                state.tflCamMarkers.push(marker);
+            });
+
+            state.liveStats.tflCams = list.length;
+            updateLiveStats();
+        } catch (e) {
+            console.warn('TfL JamCam load error:', e);
+            showToast('TfL JAMCAMS UNAVAILABLE: ' + ((e && e.message) || e));
+        }
+    }
+
+    // =========================================
     // TACTICAL CAMERA VIEWER & FEED SYSTEM
     // =========================================
     window.SGP.openCameraModalById = function (id) {
@@ -1401,6 +1554,96 @@
             showToast('⚠ Camera details unavailable');
         }
     };
+
+    // --- Short video clips (TfL JamCams publish ~9s looping MP4s) -------------
+    // The <video> is created on demand, sits next to the still <img> and shares
+    // its .cam-feed-media class so the NVG/FLIR/CYBER filters apply to it too.
+    // The still stays on screen until the clip is actually playing, and is the
+    // fallback if the clip fails or stalls.
+    const CAM_VIDEO_RELOAD_MS = 60000;
+    const CAM_VIDEO_START_TIMEOUT_MS = 10000;
+
+    function getCamVideo() {
+        let v = document.getElementById('cam-feed-video');
+        if (v) return v;
+        const viewport = document.getElementById('cam-feed-viewport');
+        if (!viewport) return null;
+        v = document.createElement('video');
+        v.id = 'cam-feed-video';
+        v.className = 'cam-feed-media hidden';
+        v.muted = true;
+        v.loop = true;
+        v.autoplay = true;
+        v.preload = 'auto';
+        v.setAttribute('playsinline', '');
+        v.setAttribute('webkit-playsinline', '');
+        const canvas = document.getElementById('cam-feed-canvas');
+        viewport.insertBefore(v, canvas || null);
+        return v;
+    }
+
+    function cacheBust(url) {
+        return url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+    }
+
+    function stopCamVideo() {
+        if (state.camVideoTimer) { clearTimeout(state.camVideoTimer); state.camVideoTimer = null; }
+        state.camVideoActive = false;
+        const v = document.getElementById('cam-feed-video');
+        if (!v) return;
+        v.onplaying = null;
+        v.onerror = null;
+        try { v.pause(); } catch (e) {}
+        v.removeAttribute('src');
+        try { v.load(); } catch (e) {}
+        v.classList.add('hidden');
+    }
+
+    function camVideoFallback(reason) {
+        const cam = state.activeCamera;
+        stopCamVideo();
+        const feedImg = document.getElementById('cam-feed-img');
+        if (cam && cam.image_url && feedImg) {
+            feedImg.classList.remove('hidden');
+            feedImg.src = cacheBust(cam.image_url);
+        }
+        if (cam && !state.camVideoWarned) {
+            state.camVideoWarned = true;
+            showToast('VIDEO UNAVAILABLE (' + reason + ') - SHOWING STILL');
+        }
+    }
+
+    function startCamVideo(cam, soft) {
+        // soft = swap in a fresh clip while the current one keeps showing (no flicker)
+        if (soft && state.camVideoActive) {
+            if (state.camVideoTimer) { clearTimeout(state.camVideoTimer); state.camVideoTimer = null; }
+        } else {
+            stopCamVideo();
+        }
+        if (!cam || !cam.video_url) return;
+        const v = getCamVideo();
+        if (!v) return;
+        const feedImg = document.getElementById('cam-feed-img');
+
+        v.onplaying = function () {
+            if (state.activeCamera !== cam) return;
+            if (state.camVideoTimer) { clearTimeout(state.camVideoTimer); state.camVideoTimer = null; }
+            state.camVideoActive = true;
+            v.classList.remove('hidden');
+            if (feedImg) feedImg.classList.add('hidden');
+        };
+        v.onerror = function () { camVideoFallback('load error'); };
+
+        state.camVideoLoadedAt = Date.now();
+        v.src = cacheBust(cam.video_url);
+        const p = v.play();
+        if (p && p.catch) p.catch(function () { /* onerror / timeout handle failures */ });
+
+        state.camVideoTimer = setTimeout(function () {
+            state.camVideoTimer = null;
+            if (state.activeCamera === cam && !state.camVideoActive) camVideoFallback('timeout');
+        }, CAM_VIDEO_START_TIMEOUT_MS);
+    }
 
     function openCameraModal(cam) {
         state.activeCamera = cam;
@@ -1444,6 +1687,10 @@
             feedImg.src = '';
         }
 
+        // Short looping clip (if the camera offers one); the still above is the fallback
+        state.camVideoWarned = false;
+        startCamVideo(cam);
+
         // Load map tile onto canvas if no direct image stream
         loadCameraMapTile(cam.lat, cam.lon);
 
@@ -1467,6 +1714,8 @@
             clearInterval(state.cameraRefreshTimer);
             state.cameraRefreshTimer = null;
         }
+
+        stopCamVideo();
 
         if (state.cameraAnimFrame) {
             cancelAnimationFrame(state.cameraAnimFrame);
@@ -1544,9 +1793,17 @@
         showToast(state.cameraTargetDetect ? '🎯 AI TARGET TRACKING ACTIVE' : '🎯 TARGET TRACKING OFF');
     };
 
-    function refreshCameraFeed() {
+    function refreshCameraFeed(force) {
         if (!state.activeCamera) return;
         const cam = state.activeCamera;
+        if (cam.video_url) {
+            // Clips are replaced every few minutes: reload on manual refresh, or
+            // once a minute in the background. Otherwise let the loop keep playing.
+            if (force === true || Date.now() - (state.camVideoLoadedAt || 0) >= CAM_VIDEO_RELOAD_MS) {
+                startCamVideo(cam, force !== true);
+            }
+            if (state.camVideoActive) return; // don't touch the still while the clip plays
+        }
         const feedImg = document.getElementById('cam-feed-img');
         if (cam.image_url && feedImg) {
             feedImg.src = cam.image_url + (cam.image_url.includes('?') ? '&' : '?') + 't=' + Date.now();
@@ -1554,7 +1811,7 @@
     }
 
     window.SGP.refreshCameraFeed = function () {
-        refreshCameraFeed();
+        refreshCameraFeed(true);
         showToast('🔄 CAMERA FEED REFRESHED');
     };
 
@@ -2148,7 +2405,8 @@
             if (aisMoveTimer) clearTimeout(aisMoveTimer);
             aisMoveTimer = setTimeout(function() {
                 aisMoveTimer = null;
-                stopAISStream();
+                if (aisViewInsideSubscription()) { scheduleAisRender(); return; }
+                stopAISStream(true);
                 startAISStream();
             }, 1200);
         }
@@ -2793,6 +3051,7 @@
                 <div class="layer-toggle" data-layer="aircraft"><div class="layer-toggle-label"><span>✈️</span><span>Air Traffic (Live)</span></div><div class="toggle-switch ${state.mapLayers.aircraft ? 'active' : ''}"></div></div>
                 <div class="layer-toggle" data-layer="vessels"><div class="layer-toggle-label"><span>⚓</span><span>Vessels (AIS Live)</span></div><div class="toggle-switch ${state.mapLayers.vessels ? 'active' : ''}"></div></div>
                 <div class="layer-toggle" data-layer="highwayCams"><div class="layer-toggle-label"><span>📷</span><span>Live Highway CCTV</span></div><div class="toggle-switch ${state.mapLayers.highwayCams ? 'active' : ''}"></div></div>
+                <div class="layer-toggle" data-layer="tflCams"><div class="layer-toggle-label"><span>📸</span><span>TfL JamCams (London)</span></div><div class="toggle-switch ${state.mapLayers.tflCams ? 'active' : ''}"></div></div>
             </div>
             <div class="panel-section">
                 <div class="panel-section-title">LIVE STATISTICS</div>
@@ -2804,6 +3063,7 @@
                     ✈️ AIRCRAFT: <span style="color:#ff44ff;">${state.liveStats.aircraft}</span><br>
                     ⚓ VESSELS: <span style="color:#00ffcc;">${state.liveStats.vessels}</span><br>
                     📷 CCTV: <span style="color:#66ffcc;">${state.liveStats.highwayCams}</span><br>
+                    📸 JAMCAMS: <span style="color:#3399ff;">${state.liveStats.tflCams || 0}</span><br>
                     🛣️ ROADS: <span style="color:var(--primary);">${state.roads.length}</span>
                 </div>
             </div>
@@ -2958,6 +3218,17 @@
                             state.highwayCamMarkers = [];
                             state.highwayCams = [];
                             state.liveStats.highwayCams = 0;
+                        }
+                    } else if (layer === 'tflCams') {
+                        if (state.mapLayers.tflCams) {
+                            loadTflCams();
+                            loadHighwayCams(); // re-add any JamCams hidden as duplicates
+                        } else {
+                            state.tflCamMarkers.forEach(m => state.tflCamLayer.removeLayer(m));
+                            state.tflCamMarkers = [];
+                            state.tflCams = [];
+                            state.liveStats.tflCams = 0;
+                            loadHighwayCams();
                         }
                     } else if (layer === 'grid') {
                         document.getElementById('grid-label').classList.toggle('hidden', !state.mapLayers.grid);
@@ -3179,9 +3450,13 @@
 
     // Settings handlers
     window.SGP.setSetting = function(key, value) {
-        state.appSettings[key] = value;
+        state.appSettings[key] = (key === 'aisApiKey' && typeof value === 'string') ? value.trim() : value;
         saveAppSettings();
         applyAppSettings();
+        if (key === 'aisApiKey' && state.mapLayers.vessels) {
+            stopAISStream();
+            startAISStream();
+        }
         // Refresh panel to reflect changes
         if (state.panelOpen === 'settings') openPanel('settings');
     };
@@ -7517,3 +7792,5 @@
     }
 
 })();
+
+

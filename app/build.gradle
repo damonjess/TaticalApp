@@ -55,6 +55,7 @@ preBuild.dependsOn generateAppConfig
 
 dependencies {
     implementation project(':capacitor-android')
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
     // Pulled in by the Capacitor module, listed explicitly so the app sources
     // that use androidx.core APIs resolve without relying on transitivity.
