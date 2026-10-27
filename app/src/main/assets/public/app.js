@@ -477,13 +477,22 @@
 
     function aisBoundingBoxes() {
         const b = state.scanZone || state.map.getBounds();
-        const pad = 0.25;
-        const north = Math.min(b.getNorth() + pad, 90);
-        const south = Math.max(b.getSouth() - pad, -90);
-        const east = Math.min(b.getEast() + pad, 180);
-        const west = Math.max(b.getWest() - pad, -180);
-        // AISStream expects Top-Left (North, West) and Bottom-Right (South, East)
-        return [[[north, west], [south, east]]];
+        const north = b.getNorth();
+        const south = b.getSouth();
+        const east = b.getEast();
+        const west = b.getWest();
+
+        const latSpan = Math.max(Math.abs(north - south) * 2.0, 10.0);
+        const lngSpan = Math.max(Math.abs(east - west) * 2.0, 15.0);
+        const midLat = (north + south) / 2.0;
+        const midLng = (east + west) / 2.0;
+
+        const paddedSouth = Math.max(-90.0, midLat - latSpan / 2.0);
+        const paddedNorth = Math.min(90.0, midLat + latSpan / 2.0);
+        const paddedWest = Math.max(-180.0, midLng - lngSpan / 2.0);
+        const paddedEast = Math.min(180.0, midLng + lngSpan / 2.0);
+
+        return [[[paddedSouth, paddedWest], [paddedNorth, paddedEast]]];
     }
 
     function startAISStream() {
@@ -499,7 +508,7 @@
             ws.send(JSON.stringify({
                 APIKey: apiKey,
                 BoundingBoxes: aisBoundingBoxes(),
-                FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport']
+                FilterMessageTypes: ['PositionReport', 'ShipStaticData', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport']
             }));
         };
 
@@ -511,29 +520,49 @@
                 return;
             }
 
-            const posMsgTypes = ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'];
-            if (!posMsgTypes.includes(msg.MessageType)) return;
-
             const md = msg.MetaData || {};
-            const pr = (msg.Message || {})[msg.MessageType] || {};
-            const mmsi = String(md.MMSI || pr.UserID || '');
+            const pr = ((msg.Message || {})[msg.MessageType]) || {};
+            const sd = (msg.Message || {}).ShipStaticData || {};
+
+            const mmsi = String(md.MMSI || pr.UserID || (sd && sd.ImoNumber) || '');
             if (!mmsi) return;
-            if (typeof pr.Latitude !== 'number' || typeof pr.Longitude !== 'number') return;
-            if (Math.abs(pr.Latitude) > 90 || Math.abs(pr.Longitude) > 180) return;
-            if (pr.Latitude === 0 && pr.Longitude === 0) return;
+
+            // Handle Static Data messages (update name if existing)
+            if (msg.MessageType === 'ShipStaticData' || sd.Name) {
+                const sName = (sd.Name || md.ShipName || '').trim();
+                if (sName) {
+                    const existing = state.aisVessels.get(mmsi);
+                    if (existing) {
+                        existing.name = sName;
+                        scheduleAisRender();
+                    }
+                }
+            }
+
+            // Extract position: coordinates are primary in MetaData (md.Latitude / md.Longitude)
+            const lat = (typeof md.Latitude === 'number' && md.Latitude !== 0) ? md.Latitude :
+                        (typeof md.latitude === 'number' && md.latitude !== 0) ? md.latitude :
+                        (typeof pr.Latitude === 'number' ? pr.Latitude : 0);
+
+            const lon = (typeof md.Longitude === 'number' && md.Longitude !== 0) ? md.Longitude :
+                        (typeof md.longitude === 'number' && md.longitude !== 0) ? md.longitude :
+                        (typeof pr.Longitude === 'number' ? pr.Longitude : 0);
+
+            if (!lat || !lon) return;
+            if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
 
             const prev = state.aisVessels.get(mmsi);
-            const shipName = (md.ShipName || '').trim() || (prev ? prev.name : '');
+            const shipName = (md.ShipName || sd.Name || '').trim() || (prev ? prev.name : '');
 
             state.aisVessels.set(mmsi, {
                 mmsi: mmsi,
                 name: shipName,
-                lat: pr.Latitude,
-                lon: pr.Longitude,
-                sog: typeof pr.Sog === 'number' ? pr.Sog : 0,
-                cog: typeof pr.Cog === 'number' ? pr.Cog : 0,
-                heading: typeof pr.TrueHeading === 'number' ? pr.TrueHeading : 0,
-                status: pr.NavigationalStatus,
+                lat: lat,
+                lon: lon,
+                sog: typeof pr.Sog === 'number' ? pr.Sog : (prev ? prev.sog : 0),
+                cog: typeof pr.Cog === 'number' ? pr.Cog : (prev ? prev.cog : 0),
+                heading: (typeof pr.TrueHeading === 'number' && pr.TrueHeading !== 511) ? pr.TrueHeading : (prev ? prev.heading : 0),
+                status: pr.NavigationalStatus !== undefined ? pr.NavigationalStatus : (prev ? prev.status : 15),
                 updated: Date.now()
             });
             scheduleAisRender();
