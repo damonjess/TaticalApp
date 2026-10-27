@@ -36,6 +36,23 @@ android {
     }
 }
 
+tasks.register('generateAppConfig') {
+    doLast {
+        def localProperties = new Properties()
+        def localPropertiesFile = rootProject.file('local.properties')
+        if (localPropertiesFile.exists()) {
+            localPropertiesFile.withInputStream { localProperties.load(it) }
+        }
+        def aisKey = System.getenv('AIS_API_KEY') ?: localProperties.getProperty('ais.api.key', '')
+        def configFile = file("src/main/assets/public/config.js")
+        configFile.parentFile.mkdirs()
+        configFile.text = "window.SGP_CONFIG = window.SGP_CONFIG || {};\nwindow.SGP_CONFIG.aisApiKey = '${aisKey}';\n"
+    }
+}
+
+preBuild.dependsOn generateAppConfig
+
+
 dependencies {
     implementation project(':capacitor-android')
 

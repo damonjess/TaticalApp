@@ -16,3 +16,4 @@ reference/
 *.pem
 google-services.json
 GoogleService-Info.plist
+app/src/main/assets/public/config.js

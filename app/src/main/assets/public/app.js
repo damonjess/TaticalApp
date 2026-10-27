@@ -468,7 +468,7 @@
     // Configure 'aisApiKey' in settings or via localStorage ('sgp_ais_api_key')
     // ---------------------------------------------------------------------
     function getAISApiKey() {
-        return (state.appSettings && state.appSettings.aisApiKey) || localStorage.getItem('sgp_ais_api_key') || '';
+        return (state.appSettings && state.appSettings.aisApiKey) || localStorage.getItem('sgp_ais_api_key') || (window.SGP_CONFIG && window.SGP_CONFIG.aisApiKey) || '';
     }
     const AIS_WS_URL = 'wss://stream.aisstream.io/v0/stream';
     const AIS_MAX_VESSELS = 250;
@@ -2953,6 +2953,9 @@
         function slider(key, label, min, max, val, unit) {
             return '<div style="padding:4px 0;"><div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-family:var(--font-mono);font-size:0.55rem;color:var(--text-primary);letter-spacing:0.5px;">' + label + '</span><span style="font-family:var(--font-mono);font-size:0.55rem;color:var(--primary);">' + val + (unit||'') + '</span></div><input type="range" min="' + min + '" max="' + max + '" value="' + val + '" oninput="window.SGP.setSettingSlider(\'' + key + '\', parseInt(this.value), this)" style="width:100%;accent-color:var(--primary);"></div>';
         }
+        function txt(key, label, placeholder, val) {
+            return '<div style="display:flex;flex-direction:column;gap:4px;padding:6px 0;"><span style="font-family:var(--font-mono);font-size:0.55rem;color:var(--text-primary);letter-spacing:0.5px;">' + label + '</span><input type="text" value="' + (val || '') + '" placeholder="' + placeholder + '" onchange="window.SGP.setSetting(\'' + key + '\', this.value)" style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text-primary);font-family:var(--font-mono);font-size:0.55rem;width:100%;"></div>';
+        }
         // Storage calc
         var storageUsed = 0;
         try { for (var k in localStorage) { if (k.startsWith('sgp_')) storageUsed += localStorage.getItem(k).length; } } catch(e){}
@@ -3011,6 +3014,7 @@
             sel('overpassEndpoint', 'OVERPASS SERVER', [{v:'auto',l:'Auto (Best)'},{v:'de',l:'Germany (DE)'},{v:'kumi',l:'Kumi Systems'},{v:'ru',l:'Russia (RU)'}], cfg.overpassEndpoint||'auto') +
             tog('autoLoadData', 'AUTO-LOAD DATA', 'Load data when map moves') +
             tog('cacheOverpassData', 'CACHE API DATA', 'Cache responses locally') +
+            txt('aisApiKey', 'AISSTREAM API KEY (VESSELS)', 'e.g. 22a8deca...', cfg.aisApiKey || (window.SGP_CONFIG && window.SGP_CONFIG.aisApiKey) || '') +
         '</div>' +
 
         // ——— NOTIFICATIONS ———
@@ -3093,7 +3097,7 @@
         timeFormat: '24h', dateFormat: 'iso',
         // Data
         dataRefreshInterval: 60, maxVehicles: 200, minZoomForData: 12, overpassEndpoint: 'auto',
-        autoLoadData: true, cacheOverpassData: true, aisApiKey: '',
+        autoLoadData: true, cacheOverpassData: true, aisApiKey: (window.SGP_CONFIG && window.SGP_CONFIG.aisApiKey) || '',
         // Notifications
         notifySound: true, notifyVibrate: true, toastDuration: 3,
         notifyGPSLost: true, notifySOSConfirm: true,
@@ -3248,7 +3252,7 @@
             unitDistance: 'metric', unitSpeed: 'kmh', unitCoords: 'dms', unitAltitude: 'm',
             timeFormat: '24h', dateFormat: 'iso',
             dataRefreshInterval: 60, maxVehicles: 200, minZoomForData: 12, overpassEndpoint: 'auto',
-            autoLoadData: true, cacheOverpassData: true,
+            autoLoadData: true, cacheOverpassData: true, aisApiKey: (window.SGP_CONFIG && window.SGP_CONFIG.aisApiKey) || '',
             notifySound: true, notifyVibrate: true, toastDuration: 3,
             notifyGPSLost: true, notifySOSConfirm: true,
             renderQuality: 'high', hardwareAccel: true, reducedMotion: false, offlineMode: false,

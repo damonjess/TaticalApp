@@ -1,0 +1,9 @@
+# Local Configuration Example
+# Copy this file to local.properties and set your local SDK location and API keys.
+# NEVER commit local.properties or files containing real secrets to Git!
+
+# Android SDK Path
+sdk.dir=/path/to/your/Android/Sdk
+
+# AISStream API Key (get a free key at https://aisstream.io)
+ais.api.key=YOUR_AIS_API_KEY_HERE
